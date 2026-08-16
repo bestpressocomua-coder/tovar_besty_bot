@@ -17,9 +17,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (Message, CallbackQuery, FSInputFile,
                            InlineKeyboardButton, InlineKeyboardMarkup)
 
+import os
+
 import config
 import data_loader as dl
 import blanks
+
+os.makedirs(config.OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 

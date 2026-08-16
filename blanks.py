@@ -62,6 +62,7 @@ def _write_sheet(ws, meta, columns, rows, qty_map, header_color):
 
 def build_order(catalog, target_label, requester, qty_map, out_dir):
     """Замовлення: колонка «Заказ». target_label = філіал або локація (Львів)."""
+    os.makedirs(out_dir, exist_ok=True)
     wb = Workbook(); ws = wb.active; ws.title = "замовлення"
     meta = [("Регіон / філіал", target_label), ("Замовник", requester),
             ("Тип заявки", "Замовлення"), ("Дата", datetime.date.today())]
@@ -75,6 +76,7 @@ def build_inventory(catalog, region, address, apparatus, requester, qty_map, out
     """Інвентаризація одного автомата: колонка «Залишок»; номенклатура типу автомата."""
     atype = apparatus["atype"]
     cat = _filter(catalog, atype)
+    os.makedirs(out_dir, exist_ok=True)
     wb = Workbook(); ws = wb.active; ws.title = f"інвент. №{apparatus['inv']}"
     meta = [("Регіон / філіал", region), ("Торгова точка", address),
             ("Тип автомату", atype), ("Автомат (інв. №)", f"№{apparatus['inv']}"),
