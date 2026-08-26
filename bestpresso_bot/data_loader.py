@@ -17,7 +17,8 @@ def load_catalog(path):
             g = groups.setdefault(r["group"], {"name": r["group"], "type": r["type"],
                                                "subs": OrderedDict(), "items": []})
             item = {"name": r["name"], "unit": r.get("unit") or "шт.",
-                    "articul": r.get("articul") or "", "type": r["type"]}
+                    "articul": r.get("articul") or "", "type": r["type"],
+                    "display": (r.get("display") or r["name"])}
             if r["subcat"]:
                 sub = g["subs"].setdefault(r["subcat"], {"name": r["subcat"], "items": []})
                 sub["items"].append(item)
@@ -99,8 +100,8 @@ def item_lookup(catalog):
     m = {}
     for g in catalog:
         for it in g["items"]:
-            m[it["name"]] = {"articul": it.get("articul", ""), "unit": it.get("unit", "")}
+            m[it["name"]] = {"articul": it.get("articul", ""), "unit": it.get("unit", ""), "display": it.get("display", it["name"])}
         for s in g["subs"]:
             for it in s["items"]:
-                m[it["name"]] = {"articul": it.get("articul", ""), "unit": it.get("unit", "")}
+                m[it["name"]] = {"articul": it.get("articul", ""), "unit": it.get("unit", ""), "display": it.get("display", it["name"])}
     return m

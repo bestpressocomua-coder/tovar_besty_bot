@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (Message, CallbackQuery, FSInputFile,
+from aiogram.types import (Message, CallbackQuery, FSInputFile, ErrorEvent,
                            InlineKeyboardButton, InlineKeyboardMarkup)
 
 import os
@@ -33,6 +33,13 @@ CATALOG = dl.load_catalog(config.CATALOG_CSV)
 LOCATIONS = dl.load_locations(config.LOCATIONS_CSV)
 EMPLOYEES = dl.load_employees(config.EMPLOYEES_CSV)
 CODE_UNIT = dl.item_lookup(CATALOG)
+DISPLAY = {n: info.get("display", n) for n, info in CODE_UNIT.items()}
+
+
+def d(name):
+    """Скорочена назва для показу; для логіки/файлу лишається оригінал."""
+    return DISPLAY.get(name, name)
+
 
 bot = Bot(config.BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -109,11 +116,12 @@ async def whoami(m: Message):
 
 @dp.message(F.text == "/reload")
 async def reload_data(m: Message):
-    global CATALOG, LOCATIONS, EMPLOYEES, CODE_UNIT
+    global CATALOG, LOCATIONS, EMPLOYEES, CODE_UNIT, DISPLAY
     CATALOG = dl.load_catalog(config.CATALOG_CSV)
     LOCATIONS = dl.load_locations(config.LOCATIONS_CSV)
     EMPLOYEES = dl.load_employees(config.EMPLOYEES_CSV)
     CODE_UNIT = dl.item_lookup(CATALOG)
+    DISPLAY = {n: info.get("display", n) for n, info in CODE_UNIT.items()}
     await m.answer("Довідники перечитано ✅")
 
 
@@ -276,7 +284,7 @@ async def pick_group(cb: CallbackQuery, state: FSMContext):
     await state.update_data(gi=int(cb.data.split(":")[1]), page=0)
     if g["subs"]:
         rows = [[btn(f"{s['name']} ({len(s['items'])})", f"sub:{i}")] for i, s in enumerate(g["subs"])]
-        rows += [[btn(i["name"][:60], f"itg:{k}")] for k, i in enumerate(g["items"])]
+        rows += [[btn(i["display"][:60], f"itg:{k}")] for k, i in enumerate(g["items"])]
         rows.append([btn("⬅️ Категорії", "back:catalog")])
         await _edit(cb, g["name"], kb(rows))
     else:
@@ -296,7 +304,7 @@ async def show_items(cb, state, items, title):
     data = await state.get_data()
     page_items, page, pages = paginate(items, data.get("page", 0), config.ITEMS_PER_PAGE)
     base = page * config.ITEMS_PER_PAGE
-    rows = [[btn(it["name"][:60], f"it:{base + k}")] for k, it in enumerate(page_items)]
+    rows = [[btn(it["display"][:60], f"it:{base + k}")] for k, it in enumerate(page_items)]
     if pages > 1:
         rows.append([btn("◀", "itpage:-1"), btn(f"{page+1}/{pages}", "noop"), btn("▶", "itpage:1")])
     rows.append([btn("⬅️ Назад", "back:catalog")])
@@ -337,7 +345,7 @@ async def _ask_qty(cb, state, name):
     presets = [0, 1, 2, 3, 5, 10]
     row = [btn(str(v), f"qty:{v}") for v in presets]
     rows = [row[:3], row[3:], [btn("✏️ Інша кількість", "qty:manual")], [btn("⬅️ Скасувати", "back:catalog")]]
-    await _edit(cb, f"{prompt}\n{name}\n(введіть число або оберіть кнопку)", kb(rows))
+    await _edit(cb, f"{prompt}\n{d(name)}\n(введіть число або оберіть кнопку)", kb(rows))
 
 
 @dp.callback_query(F.data.startswith("qty:"))
@@ -480,7 +488,7 @@ async def show_cart(cb: CallbackQuery, state: FSMContext):
              else data.get("inv_carts", {}).get(data["cur_app"]["inv"], {}))
     if not items:
         await cb.answer("Порожньо", show_alert=True); return
-    txt = "\n".join(f"• {n} — {q}" for n, q in items.items())
+    txt = "\n".join(f"• {d(n)} — {q}" for n, q in items.items())
     await cb.message.answer("Кошик:\n" + txt + "\n\n/menu — продовжити")
     await cb.answer()
 
@@ -499,12 +507,12 @@ async def search_run(m: Message, state: FSMContext):
         return
     cat = active_catalog(data)
     q = m.text.lower()
-    found = [it for it in dl.flat_items(cat) if q in it["name"].lower()][:12]
+    found = [it for it in dl.flat_items(cat) if q in it["name"].lower() or q in it["display"].lower()][:12]
     if not found:
         await m.answer("Нічого не знайдено.")
         return
     await state.update_data(cur_items=[it["name"] for it in found], searching=False)
-    rows = [[btn(it["name"][:60], f"it:{k}")] for k, it in enumerate(found)]
+    rows = [[btn(it["display"][:60], f"it:{k}")] for k, it in enumerate(found)]
     await m.answer("Знайдено:", reply_markup=kb(rows))
 
 
@@ -542,6 +550,25 @@ async def _edit(cb: CallbackQuery, text, markup):
     except Exception:
         await cb.message.answer(text, reply_markup=markup)
     await cb.answer()
+
+
+@dp.errors()
+async def on_error(event: ErrorEvent):
+    """Мʼяко обробляє збої (напр. натискання старої кнопки після перезапуску,
+    коли стан сесії втрачено) — просить почати заново замість падіння."""
+    logging.exception("Handler error: %s", event.exception)
+    upd = event.update
+    try:
+        if getattr(upd, "callback_query", None):
+            await upd.callback_query.answer()
+            await upd.callback_query.message.answer(
+                "Сесія оновилась. Натисніть /start, щоб почати заново.")
+        elif getattr(upd, "message", None):
+            await upd.message.answer(
+                "Сталася помилка. Натисніть /start, щоб почати заново.")
+    except Exception:
+        pass
+    return True
 
 
 async def main():
