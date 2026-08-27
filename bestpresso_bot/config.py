@@ -28,6 +28,6 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER = os.getenv("SMTP_USER", "bestpresso.com.ua@gmail.com")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")   # App Password (16 симв.) — задати на Render
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
-EMAIL_TO = os.getenv("EMAIL_TO", "Stegaluk@bestpresso.com.ua")
+EMAIL_TO = os.getenv("EMAIL_TO", "Stegaluk@bestpresso.com.ua, Kostrubitskaya@bestpresso.com.ua")
 SEND_EMAIL = os.getenv("SEND_EMAIL", "1") == "1"
 TELEGRAM_FALLBACK = os.getenv("TELEGRAM_FALLBACK", "1") == "1"
