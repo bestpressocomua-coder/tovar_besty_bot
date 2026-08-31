@@ -7,8 +7,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT-YOUR-BOT-TOKEN-HERE")
 
 # Куди надсилати готові файли (chat_id користувача/групи або @username каналу).
 # Можна задати різних отримувачів для замовлень та інвентаризації.
-RECIPIENT_ORDERS = os.getenv("RECIPIENT_ORDERS", "1982086643")
-RECIPIENT_INVENTORY = os.getenv("RECIPIENT_INVENTORY", "1982086643")
+RECIPIENT_ORDERS = os.getenv("RECIPIENT_ORDERS", "733493566")
+RECIPIENT_INVENTORY = os.getenv("RECIPIENT_INVENTORY", "733493566")
 
 # --- Джерела даних (таблиці, які веде відділ обліку вручну) ---
 CATALOG_CSV = os.getenv("CATALOG_CSV", "data/catalog.csv")
