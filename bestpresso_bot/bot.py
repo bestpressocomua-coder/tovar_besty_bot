@@ -131,10 +131,19 @@ async def pick_inv(cb: CallbackQuery, state: FSMContext):
 
 
 # ---------- екран 1: регіони ----------
+def _lviv_sublocs():
+    return set(LOCATIONS.get("Львів", {}).get("sublocs", {}).keys())
+
+
 def visible_regions(uid):
     scope = EMPLOYEES.get(str(uid), {}).get("regions")
     keys = list(LOCATIONS.keys())
-    return keys if scope is None else [r for r in keys if r in scope]
+    if scope is None:
+        return keys
+    vis = [r for r in keys if r in scope]
+    if (scope & _lviv_sublocs()) and "Львів" in LOCATIONS and "Львів" not in vis:
+        vis.append("Львів")
+    return vis
 
 
 async def enter_region(cb, state, region):
@@ -169,17 +178,34 @@ async def pick_region(cb: CallbackQuery, state: FSMContext):
 
 
 # ---------- екран 2: локації ----------
+def _location_entries(region, uid):
+    """Локації регіону; для Львова — обмежені підлокаціями техніка (за employees.csv)."""
+    reg = LOCATIONS[region]
+    entries = list(reg["sublocs"].items()) if reg["has_sub"] else list(reg["locs"].items())
+    scope = EMPLOYEES.get(str(uid), {}).get("regions")
+    if reg["has_sub"] and scope is not None:
+        allowed = scope & set(reg["sublocs"].keys())
+        if allowed:
+            entries = [(k, v) for k, v in entries if k in allowed]
+    return entries
+
+
 async def show_locations(cb, state):
     data = await state.get_data()
-    reg = LOCATIONS[data["region"]]
-    entries = list(reg["sublocs"].items()) if reg["has_sub"] else list(reg["locs"].items())
+    region = data["region"]
+    entries = _location_entries(region, cb.from_user.id)
+    scope = EMPLOYEES.get(str(cb.from_user.id), {}).get("regions")
+    if scope is not None and len(entries) == 1:      # технік з однією локацією — пропускаємо крок
+        label, apps = entries[0]
+        await state.update_data(loc_label=label, target_label=label)
+        await show_catalog(cb, state); return
     page_items, page, pages = paginate(entries, data.get("lpage", 0), config.LOCS_PER_PAGE)
     base = page * config.LOCS_PER_PAGE
     rows = [[btn(f"{label[:44]}", f"loc:{base + j}")] for j, (label, apps) in enumerate(page_items)]
     if pages > 1:
         rows.append([btn("◀", "locpage:-1"), btn(f"{page+1}/{pages}", "noop"), btn("▶", "locpage:1")])
     rows.append([btn("⬅️ До регіонів", "back:regions")])
-    await _edit(cb, f"{data['region'].replace('_',' ')}\nОберіть локацію:", kb(rows))
+    await _edit(cb, f"{region.replace('_',' ')}\nОберіть локацію:", kb(rows))
 
 
 @dp.callback_query(F.data.startswith("locpage:"))
@@ -192,8 +218,7 @@ async def loc_page(cb: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("loc:"))
 async def pick_location(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    reg = LOCATIONS[data["region"]]
-    entries = list(reg["sublocs"].items()) if reg["has_sub"] else list(reg["locs"].items())
+    entries = _location_entries(data["region"], cb.from_user.id)
     label, apps = entries[int(cb.data.split(":")[1])]
     await state.update_data(loc_label=label, target_label=label)
     await show_catalog(cb, state)
