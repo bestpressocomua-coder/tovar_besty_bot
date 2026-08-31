@@ -84,6 +84,11 @@ def _cart_count(data):
     return len(data.get("cart", {}))
 
 
+def _finish_row(data):
+    label = "✅ Оформити замовлення" if data["mode"] == "order" else "📤 Відправити інвентаризацію"
+    return [btn(label, "finish")]
+
+
 # ---------- екран 0: режим ----------
 async def show_mode(target):
     await _send(target, "Вітаю 👋 Оберіть дію:",
@@ -210,6 +215,7 @@ async def show_subs(cb, state):
     g = CATALOG[data["gi"]]
     rows = [[btn(f"{s['name']} ({len(s['items'])})", f"sub:{i}")] for i, s in enumerate(g["subs"])]
     rows += [[btn(i["display"][:60], f"itg:{k}")] for k, i in enumerate(g["items"])]
+    rows.append(_finish_row(data))
     rows.append([btn("⬅️ Категорії", "back:catalog")])
     await _edit(cb, _ctx(data) + g["name"], kb(rows))
 
@@ -260,6 +266,7 @@ def _items_payload(data):
     rows = [[btn(it["display"][:60], f"it:{base + k}")] for k, it in enumerate(page_items)]
     if pages > 1:
         rows.append([btn("◀", "itpage:-1"), btn(f"{page+1}/{pages}", "noop"), btn("▶", "itpage:1")])
+    rows.append(_finish_row(data))
     rows.append([btn(back[0], back[1])])
     return _ctx(data) + title + "\nОберіть позицію:", rows, [it["name"] for it in items]
 
@@ -298,7 +305,7 @@ async def _ask_qty(cb, state, name):
     prompt = "Скільки одиниць замовити?" if data["mode"] == "order" else "Який залишок?"
     presets = [0, 1, 2, 3, 5, 10]
     row = [btn(str(v), f"qty:{v}") for v in presets]
-    rows = [row[:3], row[3:], [btn("✏️ Інша кількість", "qty:manual")], [btn("⬅️ Назад", "back:items")]]
+    rows = [row[:3], row[3:], [btn("✏️ Інша кількість", "qty:manual")], _finish_row(data), [btn("⬅️ Назад", "back:items")]]
     await _edit(cb, f"{prompt}\n{d(name)}\n(введіть число або оберіть кнопку)", kb(rows))
 
 
