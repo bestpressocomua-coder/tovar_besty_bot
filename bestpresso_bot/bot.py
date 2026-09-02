@@ -75,9 +75,14 @@ def paginate(items, page, per_page):
 
 
 def _ctx(data):
-    mode = "🛒 Замовлення" if data["mode"] == "order" else "📋 Інвентаризація"
     place = data.get("loc_label") or data.get("target_label", "")
-    return f"{mode} · {place}\n"
+    return f"{MODE_TITLE.get(data['mode'],'')} · {place}\n"
+
+
+MODE_TITLE = {"order": "🛒 Замовлення", "inv": "📋 Інвентаризація", "writeoff": "🗑 Списання"}
+FINISH_LABEL = {"order": "✅ Оформити замовлення", "inv": "📤 Відправити інвентаризацію", "writeoff": "🗑 Оформити списання"}
+SUBJECT_PREFIX = {"order": "Замовлення", "inv": "Інвентаризація", "writeoff": "Списання"}
+QTY_PROMPT = {"order": "Скільки одиниць замовити?", "inv": "Який залишок?", "writeoff": "Яку кількість списати?"}
 
 
 def _cart_count(data):
@@ -85,15 +90,15 @@ def _cart_count(data):
 
 
 def _finish_row(data):
-    label = "✅ Оформити замовлення" if data["mode"] == "order" else "📤 Відправити інвентаризацію"
-    return [btn(label, "finish")]
+    return [btn(FINISH_LABEL.get(data["mode"], "✅ Оформити"), "finish")]
 
 
 # ---------- екран 0: режим ----------
 async def show_mode(target):
     await _send(target, "Вітаю 👋 Оберіть дію:",
                 kb([[btn("🛒 Замовлення", "mode:order")],
-                    [btn("📋 Інвентаризація", "mode:inv")]]))
+                    [btn("📋 Інвентаризація", "mode:inv")],
+                    [btn("🗑 Списання товару", "mode:writeoff")]]))
 
 
 @dp.message(CommandStart())
@@ -127,6 +132,12 @@ async def pick_order(cb: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "mode:inv")
 async def pick_inv(cb: CallbackQuery, state: FSMContext):
     await state.update_data(mode="inv", cart={}, loc_label=None)
+    await show_regions(cb, state)
+
+
+@dp.callback_query(F.data == "mode:writeoff")
+async def pick_writeoff(cb: CallbackQuery, state: FSMContext):
+    await state.update_data(mode="writeoff", cart={}, loc_label=None)
     await show_regions(cb, state)
 
 
@@ -229,8 +240,7 @@ async def show_catalog(cb, state):
     data = await state.get_data()
     rows = [[btn(f"📂 {g['name']}", f"grp:{i}")] for i, g in enumerate(CATALOG)]
     rows.append([btn("🔍 Пошук", "search"), btn(f"🛒 Кошик ({_cart_count(data)})", "cart")])
-    end = "✅ Оформити замовлення" if data["mode"] == "order" else "📤 Відправити інвентаризацію"
-    rows.append([btn(end, "finish")])
+    rows.append([btn(FINISH_LABEL.get(data["mode"], "✅ Оформити"), "finish")])
     rows.append([btn("⬅️ Змінити локацію/філіал", "back:loc_or_reg")])
     await _edit(cb, _ctx(data) + "Оберіть категорію:", kb(rows))
 
@@ -327,7 +337,7 @@ async def pick_item(cb: CallbackQuery, state: FSMContext):
 async def _ask_qty(cb, state, name):
     data = await state.get_data()
     await state.update_data(pending=name)
-    prompt = "Скільки одиниць замовити?" if data["mode"] == "order" else "Який залишок?"
+    prompt = QTY_PROMPT.get(data["mode"], "Кількість?")
     presets = [0, 1, 2, 3, 5, 10]
     row = [btn(str(v), f"qty:{v}") for v in presets]
     rows = [row[:3], row[3:], [btn("✏️ Інша кількість", "qty:manual")], _finish_row(data), [btn("⬅️ Назад", "back:items")]]
@@ -422,16 +432,26 @@ async def finish(cb: CallbackQuery, state: FSMContext):
         await cb.answer("Список порожній", show_alert=True); return
     dd = date.today().strftime("%d.%m.%Y")
     place = (data.get("loc_label") or data.get("target_label", "")).replace(" (усі локації)", "")
-    if data["mode"] == "order":
-        subject = f"Замовлення — {place} — {dd} — {req}"
-        body = "Доброго дня! У вкладенні замовлення. На лист відповідати не треба — це автоматична розсилка."
-        recipient = config.RECIPIENT_ORDERS
-        done_msg = "Замовлення сформовано й надіслано"
-    else:
-        subject = f"Інвентаризація — {place} — {dd} — {req}"
-        body = "Доброго дня! У вкладенні інвентаризація. На лист відповідати не треба — це автоматична розсилка."
-        recipient = config.RECIPIENT_INVENTORY
-        done_msg = "Інвентаризацію сформовано й надіслано"
+    mode = data["mode"]
+    subject = f"{SUBJECT_PREFIX[mode]} — {place} — {dd} — {req}"
+    bodies = {
+        "order": "Доброго дня! У вкладенні замовлення. На лист відповідати не треба — це автоматична розсилка.",
+        "inv": "Доброго дня! У вкладенні інвентаризація. На лист відповідати не треба — це автоматична розсилка.",
+        "writeoff": "Доброго дня! У вкладенні списання товару. На лист відповідати не треба — це автоматична розсилка.",
+    }
+    recipients = {
+        "order": config.RECIPIENT_ORDERS,
+        "inv": config.RECIPIENT_INVENTORY,
+        "writeoff": config.RECIPIENT_WRITEOFF,
+    }
+    done_msgs = {
+        "order": "Замовлення сформовано й надіслано",
+        "inv": "Інвентаризацію сформовано й надіслано",
+        "writeoff": "Списання сформовано й надіслано",
+    }
+    body = bodies[mode]
+    recipient = recipients[mode]
+    done_msg = done_msgs[mode]
     path = blanks.build_blank(cart, CODE_UNIT, config.OUTPUT_DIR, subject + ".xlsx")
     via = await _deliver(subject, body, [path], recipient)
     await cb.message.answer(
