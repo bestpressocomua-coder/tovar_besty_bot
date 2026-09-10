@@ -35,6 +35,13 @@ def d(name):
     return DISPLAY.get(name, name)
 
 
+def active_catalog(data):
+    """Каталог для поточної локації: для 'тільки кава' ховаємо групу «Снеки»."""
+    if data.get("coffee_only"):
+        return [g for g in CATALOG if g["name"] != "Снеки"]
+    return CATALOG
+
+
 bot = Bot(config.BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -125,19 +132,19 @@ async def reload_data(m: Message):
 
 @dp.callback_query(F.data == "mode:order")
 async def pick_order(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(mode="order", cart={}, loc_label=None)
+    await state.update_data(mode="order", cart={}, loc_label=None, coffee_only=False)
     await show_regions(cb, state)
 
 
 @dp.callback_query(F.data == "mode:inv")
 async def pick_inv(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(mode="inv", cart={}, loc_label=None)
+    await state.update_data(mode="inv", cart={}, loc_label=None, coffee_only=False)
     await show_regions(cb, state)
 
 
 @dp.callback_query(F.data == "mode:writeoff")
 async def pick_writeoff(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(mode="writeoff", cart={}, loc_label=None)
+    await state.update_data(mode="writeoff", cart={}, loc_label=None, coffee_only=False)
     await show_regions(cb, state)
 
 
@@ -159,10 +166,10 @@ def visible_regions(uid):
 
 async def enter_region(cb, state, region):
     data = await state.get_data()
-    await state.update_data(region=region, lpage=0, loc_label=None)
+    await state.update_data(region=region, lpage=0, loc_label=None, coffee_only=False)
     reg = LOCATIONS[region]
     if data["mode"] == "order" and not reg["has_sub"]:
-        await state.update_data(target_label=region.replace("_", " ") + " (усі локації)")
+        await state.update_data(target_label=region.replace("_", " ") + " (усі локації)", coffee_only=reg.get("coffee_only", False))
         await show_catalog(cb, state)
     else:
         await show_locations(cb, state)
@@ -208,7 +215,8 @@ async def show_locations(cb, state):
     scope = EMPLOYEES.get(str(cb.from_user.id), {}).get("regions")
     if scope is not None and len(entries) == 1:      # технік з однією локацією — пропускаємо крок
         label, apps = entries[0]
-        await state.update_data(loc_label=label, target_label=label)
+        co = bool(apps) and all(a.get("coffee_only") for a in apps)
+        await state.update_data(loc_label=label, target_label=label, coffee_only=co)
         await show_catalog(cb, state); return
     page_items, page, pages = paginate(entries, data.get("lpage", 0), config.LOCS_PER_PAGE)
     base = page * config.LOCS_PER_PAGE
@@ -231,14 +239,15 @@ async def pick_location(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     entries = _location_entries(data["region"], cb.from_user.id)
     label, apps = entries[int(cb.data.split(":")[1])]
-    await state.update_data(loc_label=label, target_label=label)
+    co = bool(apps) and all(a.get("coffee_only") for a in apps)
+    await state.update_data(loc_label=label, target_label=label, coffee_only=co)
     await show_catalog(cb, state)
 
 
 # ---------- екран 3: каталог ----------
 async def show_catalog(cb, state):
     data = await state.get_data()
-    rows = [[btn(f"📂 {g['name']}", f"grp:{i}")] for i, g in enumerate(CATALOG)]
+    rows = [[btn(f"📂 {g['name']}", f"grp:{i}")] for i, g in enumerate(active_catalog(data))]
     rows.append([btn("🔍 Пошук", "search"), btn(f"🛒 Кошик ({_cart_count(data)})", "cart")])
     rows.append([btn(FINISH_LABEL.get(data["mode"], "✅ Оформити"), "finish")])
     rows.append([btn("⬅️ Змінити локацію/філіал", "back:loc_or_reg")])
@@ -247,7 +256,7 @@ async def show_catalog(cb, state):
 
 async def show_subs(cb, state):
     data = await state.get_data()
-    g = CATALOG[data["gi"]]
+    g = active_catalog(data)[data["gi"]]
     rows = [[btn(f"{s['name']} ({len(s['items'])})", f"sub:{i}")] for i, s in enumerate(g["subs"])]
     rows += [[btn(i["display"][:60], f"itg:{k}")] for k, i in enumerate(g["items"])]
     rows.append(_finish_row(data))
@@ -259,7 +268,7 @@ async def show_subs(cb, state):
 async def pick_group(cb: CallbackQuery, state: FSMContext):
     gi = int(cb.data.split(":")[1])
     await state.update_data(gi=gi, si=None, ipage=0, from_search=False)
-    if CATALOG[gi]["subs"]:
+    if active_catalog(data)[gi]["subs"]:
         await show_subs(cb, state)
     else:
         await render_items_edit(cb, state)
@@ -275,7 +284,7 @@ async def pick_sub(cb: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("itg:"))
 async def pick_item_group(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    g = CATALOG[data["gi"]]
+    g = active_catalog(data)[data["gi"]]
     name = g["items"][int(cb.data.split(":")[1])]["name"]
     await _ask_qty(cb, state, name)
 
@@ -288,7 +297,7 @@ def _items_payload(data):
         title = "Знайдено"
         back = ("⬅️ Назад до меню", "back:catalog")
     else:
-        g = CATALOG[data["gi"]]
+        g = active_catalog(data)[data["gi"]]
         si = data.get("si")
         if si is None:
             items, title = g["items"], g["name"]
@@ -385,7 +394,7 @@ async def search_run(m: Message, state: FSMContext):
     if not data.get("searching"):
         return
     q = m.text.lower()
-    found = [it for it in dl.flat_items(CATALOG)
+    found = [it for it in dl.flat_items(active_catalog(data))
              if q in it["name"].lower() or q in it["display"].lower()][:12]
     if not found:
         await m.answer("Нічого не знайдено.")

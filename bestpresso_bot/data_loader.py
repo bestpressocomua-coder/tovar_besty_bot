@@ -66,9 +66,13 @@ def load_locations(path):
         for r in csv.DictReader(f):
             reg = regions.setdefault(r["region"], {"has_sub": False,
                                                    "sublocs": OrderedDict(),
-                                                   "locs": OrderedDict()})
+                                                   "locs": OrderedDict(),
+                                                   "coffee_only": True})
+            co = str(r.get("coffee_only", "")).strip() in ("1", "true", "True", "так")
+            if not co:
+                reg["coffee_only"] = False
             app = {"inv": r["inv"], "atype": r["atype"], "model": r["model"],
-                   "address": r["address"]}
+                   "address": r["address"], "coffee_only": co}
             if r["sublocation"]:
                 reg["has_sub"] = True
                 sl = reg["sublocs"].setdefault(r["sublocation"], [])
