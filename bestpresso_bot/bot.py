@@ -268,6 +268,7 @@ async def show_subs(cb, state):
 async def pick_group(cb: CallbackQuery, state: FSMContext):
     gi = int(cb.data.split(":")[1])
     await state.update_data(gi=gi, si=None, ipage=0, from_search=False)
+    data = await state.get_data()
     if active_catalog(data)[gi]["subs"]:
         await show_subs(cb, state)
     else:
