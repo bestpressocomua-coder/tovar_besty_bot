@@ -100,6 +100,10 @@ def _finish_row(data):
     return [btn(FINISH_LABEL.get(data["mode"], "✅ Оформити"), "finish")]
 
 
+def _tools_row(data):
+    return [btn("🔍 Пошук", "search"), btn(f"🛒 Кошик ({_cart_count(data)})", "cart")]
+
+
 # ---------- екран 0: режим ----------
 async def show_mode(target):
     await _send(target, "Вітаю 👋 Оберіть дію:",
@@ -259,6 +263,7 @@ async def show_subs(cb, state):
     g = active_catalog(data)[data["gi"]]
     rows = [[btn(f"{s['name']} ({len(s['items'])})", f"sub:{i}")] for i, s in enumerate(g["subs"])]
     rows += [[btn(i["display"][:60], f"itg:{k}")] for k, i in enumerate(g["items"])]
+    rows.append(_tools_row(data))
     rows.append(_finish_row(data))
     rows.append([btn("⬅️ Категорії", "back:catalog")])
     await _edit(cb, _ctx(data) + g["name"], kb(rows))
@@ -311,6 +316,7 @@ def _items_payload(data):
     rows = [[btn(it["display"][:60], f"it:{base + k}")] for k, it in enumerate(page_items)]
     if pages > 1:
         rows.append([btn("◀", "itpage:-1"), btn(f"{page+1}/{pages}", "noop"), btn("▶", "itpage:1")])
+    rows.append(_tools_row(data))
     rows.append(_finish_row(data))
     rows.append([btn(back[0], back[1])])
     return _ctx(data) + title + "\nОберіть позицію:", rows, [it["name"] for it in items]
@@ -464,11 +470,23 @@ async def finish(cb: CallbackQuery, state: FSMContext):
     done_msg = done_msgs[mode]
     path = blanks.build_blank(cart, CODE_UNIT, config.OUTPUT_DIR, subject + ".xlsx")
     via = await _deliver(subject, body, [path], recipient)
+    n = len(cart)
+    if via == "email":
+        head = f"✅ {done_msg} на пошту."
+    elif via == "telegram":
+        head = f"⚠️ Пошта тимчасово недоступна — {done_msg.lower()} в Telegram (резерв)."
+    else:
+        head = "❌ Не вдалося надіслати. Зверніться у відділ обліку."
     await cb.message.answer(
-        f"{done_msg} на пошту ✅" if via == "email"
-        else "Пошта недоступна — надіслано в Telegram (резерв) ⚠️" if via == "telegram"
-        else "Не вдалося надіслати ❌")
+        f"{head}\n\n{MODE_TITLE[mode]} · {place}\nПозицій: {n}",
+        reply_markup=kb([[btn("🆕 Нова заявка", "restart")]]))
     await state.clear()
+
+
+@dp.callback_query(F.data == "restart")
+async def restart(cb: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await show_mode(cb)
 
 
 # ---------- навігація назад ----------
