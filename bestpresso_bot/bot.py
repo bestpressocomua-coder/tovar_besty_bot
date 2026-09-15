@@ -66,6 +66,21 @@ class AccessMiddleware(BaseMiddleware):
 dp.update.outer_middleware(AccessMiddleware())
 
 
+# ---- захист від застарілих кнопок (після передеплою сесія очищається) ----
+ALLOW_NO_MODE = {"restart", "noop", "mode:order", "mode:inv", "mode:writeoff"}
+
+
+@dp.callback_query.middleware()
+async def stale_guard(handler, event, data):
+    st = data.get("state")
+    if st is not None and event.data not in ALLOW_NO_MODE:
+        cur = await st.get_data()
+        if "mode" not in cur:
+            await event.answer("Сесія застаріла. Натисніть /start 🔄", show_alert=True)
+            return
+    return await handler(event, data)
+
+
 # ---------- helpers ----------
 def kb(rows):
     return InlineKeyboardMarkup(inline_keyboard=rows)
