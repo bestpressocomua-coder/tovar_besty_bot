@@ -20,13 +20,19 @@ def _safe(name):
     return re.sub(r'[\\/:*?"<>|]', "-", name)
 
 
-def build_blank(cart, code_unit, out_dir, fname):
+def build_blank(cart, code_unit, out_dir, fname, comment=""):
     """cart = {назва: кількість}; code_unit = {назва: {'articul','unit'}}.
     Формує файл у форматі шаблону 1С і повертає шлях."""
     os.makedirs(out_dir, exist_ok=True)
     wb = Workbook()
     ws = wb.active
     ws.title = "TDSheet"
+
+    # коментар (за наявності) — у 1-й рядок, над заголовком таблиці
+    if comment:
+        c = ws.cell(1, 1, "Коментар: " + comment)
+        c.font = ARB
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
 
     # заголовок у 2-му рядку (колонка A лишається порожньою), 3-й рядок порожній
     for col, text in [(2, "код"), (3, "Товар"), (4, "Кількість"), (5, "одиниця виміру")]:

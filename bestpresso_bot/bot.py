@@ -12,6 +12,7 @@ from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (Message, CallbackQuery, FSInputFile, ErrorEvent,
                            InlineKeyboardButton, InlineKeyboardMarkup)
 
@@ -46,6 +47,10 @@ bot = Bot(config.BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 
+class Flow(StatesGroup):
+    comment = State()
+
+
 # ---------- доступ ----------
 def _allowed_ids():
     return {k for k in EMPLOYEES.keys() if k not in ("0", "")}
@@ -73,6 +78,9 @@ ALLOW_NO_MODE = {"restart", "noop", "mode:order", "mode:inv", "mode:writeoff"}
 @dp.callback_query.middleware()
 async def stale_guard(handler, event, data):
     st = data.get("state")
+    if st is not None:
+        if await st.get_state() == Flow.comment and event.data != "comment":
+            await st.set_state(None)
     if st is not None and event.data not in ALLOW_NO_MODE:
         cur = await st.get_data()
         if "mode" not in cur:
@@ -116,7 +124,8 @@ def _finish_row(data):
 
 
 def _tools_row(data):
-    return [btn("🔍 Пошук", "search"), btn(f"🛒 Кошик ({_cart_count(data)})", "cart")]
+    clabel = "📝 Коментар ✓" if data.get("comment") else "📝 Коментар"
+    return [btn("🔍 Пошук", "search"), btn(f"🛒 Кошик ({_cart_count(data)})", "cart"), btn(clabel, "comment")]
 
 
 # ---------- екран 0: режим ----------
@@ -151,19 +160,19 @@ async def reload_data(m: Message):
 
 @dp.callback_query(F.data == "mode:order")
 async def pick_order(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(mode="order", cart={}, loc_label=None, coffee_only=False)
+    await state.update_data(mode="order", cart={}, loc_label=None, coffee_only=False, comment="")
     await show_regions(cb, state)
 
 
 @dp.callback_query(F.data == "mode:inv")
 async def pick_inv(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(mode="inv", cart={}, loc_label=None, coffee_only=False)
+    await state.update_data(mode="inv", cart={}, loc_label=None, coffee_only=False, comment="")
     await show_regions(cb, state)
 
 
 @dp.callback_query(F.data == "mode:writeoff")
 async def pick_writeoff(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(mode="writeoff", cart={}, loc_label=None, coffee_only=False)
+    await state.update_data(mode="writeoff", cart={}, loc_label=None, coffee_only=False, comment="")
     await show_regions(cb, state)
 
 
@@ -271,6 +280,15 @@ async def show_catalog(cb, state):
     rows.append([btn(FINISH_LABEL.get(data["mode"], "✅ Оформити"), "finish")])
     rows.append([btn("⬅️ Змінити локацію/філіал", "back:loc_or_reg")])
     await _edit(cb, _ctx(data) + "Оберіть категорію:", kb(rows))
+
+
+async def show_catalog_msg(m, state):
+    data = await state.get_data()
+    rows = [[btn(f"📂 {g['name']}", f"grp:{i}")] for i, g in enumerate(active_catalog(data))]
+    rows.append(_tools_row(data))
+    rows.append(_finish_row(data))
+    rows.append([btn("⬅️ Змінити локацію/філіал", "back:loc_or_reg")])
+    await m.answer(_ctx(data) + "Оберіть категорію:", reply_markup=kb(rows))
 
 
 async def show_subs(cb, state):
@@ -385,6 +403,15 @@ async def set_qty(cb: CallbackQuery, state: FSMContext):
     await render_items_edit(cb, state)
 
 
+@dp.message(Flow.comment, F.text)
+async def comment_typed(m: Message, state: FSMContext):
+    txt = m.text.strip()
+    await state.update_data(comment=("" if txt == "-" else txt))
+    await state.set_state(None)
+    await m.answer("Коментар прибрано." if txt == "-" else "Коментар додано ✅")
+    await show_catalog_msg(m, state)
+
+
 @dp.message(F.text.regexp(r"^\d+$"))
 async def qty_typed(m: Message, state: FSMContext):
     data = await state.get_data()
@@ -403,6 +430,13 @@ async def _add_to_cart(state, qty):
 
 
 # ---------- пошук / кошик ----------
+@dp.callback_query(F.data == "comment")
+async def add_comment(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(Flow.comment)
+    await cb.message.answer("Напишіть коментар до заявки одним повідомленням (або «-», щоб прибрати):")
+    await cb.answer()
+
+
 @dp.callback_query(F.data == "search")
 async def search_prompt(cb: CallbackQuery, state: FSMContext):
     await state.update_data(searching=True)
@@ -483,7 +517,7 @@ async def finish(cb: CallbackQuery, state: FSMContext):
     body = bodies[mode]
     recipient = recipients[mode]
     done_msg = done_msgs[mode]
-    path = blanks.build_blank(cart, CODE_UNIT, config.OUTPUT_DIR, subject + ".xlsx")
+    path = blanks.build_blank(cart, CODE_UNIT, config.OUTPUT_DIR, subject + ".xlsx", data.get("comment", ""))
     via = await _deliver(subject, body, [path], recipient)
     n = len(cart)
     if via == "email":
