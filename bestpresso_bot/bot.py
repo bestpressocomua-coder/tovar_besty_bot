@@ -177,8 +177,14 @@ async def pick_writeoff(cb: CallbackQuery, state: FSMContext):
 
 
 # ---------- екран 1: регіони ----------
-def _lviv_sublocs():
-    return set(LOCATIONS.get("Львів", {}).get("sublocs", {}).keys())
+def _subloc_parent():
+    """Кожна підлокація -> її батьківський регіон (для всіх регіонів із підлокаціями)."""
+    m = {}
+    for reg, info in LOCATIONS.items():
+        if info.get("has_sub"):
+            for s in info["sublocs"]:
+                m[s] = reg
+    return m
 
 
 def visible_regions(uid):
@@ -187,8 +193,10 @@ def visible_regions(uid):
     if scope is None:
         return keys
     vis = [r for r in keys if r in scope]
-    if (scope & _lviv_sublocs()) and "Львів" in LOCATIONS and "Львів" not in vis:
-        vis.append("Львів")
+    parents = _subloc_parent()
+    for tok in scope:
+        if tok in parents and parents[tok] not in vis:
+            vis.append(parents[tok])
     return vis
 
 
