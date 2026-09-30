@@ -204,7 +204,7 @@ async def enter_region(cb, state, region):
     data = await state.get_data()
     await state.update_data(region=region, lpage=0, loc_label=None, coffee_only=False)
     reg = LOCATIONS[region]
-    if data["mode"] == "order" and not reg["has_sub"]:
+    if not reg["has_sub"]:
         await state.update_data(target_label=region.replace("_", " ") + " (усі локації)", coffee_only=reg.get("coffee_only", False))
         await show_catalog(cb, state)
     else:
@@ -420,13 +420,21 @@ async def comment_typed(m: Message, state: FSMContext):
     await show_catalog_msg(m, state)
 
 
-@dp.message(F.text.regexp(r"^\d+$"))
+def _parse_qty(text):
+    """Приймає 5, 1.5 або 1,5. Повертає int для цілих, float для дробових."""
+    v = float(text.strip().replace(",", "."))
+    return int(v) if v.is_integer() else round(v, 3)
+
+
+@dp.message(F.text.regexp(r"^\s*\d+([.,]\d+)?\s*$"))
 async def qty_typed(m: Message, state: FSMContext):
     data = await state.get_data()
     if not data.get("pending"):
         return
-    await _add_to_cart(state, int(m.text))
-    await m.answer("Записано ✅")
+    qty = _parse_qty(m.text)
+    name = data["pending"]
+    await _add_to_cart(state, qty)
+    await m.answer(f"Записано ✅ {d(name)} — {qty}")
     await render_items_msg(m, state)
 
 
@@ -456,6 +464,8 @@ async def search_prompt(cb: CallbackQuery, state: FSMContext):
 async def search_run(m: Message, state: FSMContext):
     data = await state.get_data()
     if not data.get("searching"):
+        if data.get("pending"):
+            await m.answer("Введіть кількість числом, наприклад 3 або 1,5")
         return
     q = m.text.lower()
     found = [it for it in dl.flat_items(active_catalog(data))
@@ -563,7 +573,7 @@ async def go_back(cb: CallbackQuery, state: FSMContext):
         await render_items_edit(cb, state)
     elif where == "loc_or_reg":
         reg = LOCATIONS[data["region"]]
-        if data["mode"] == "order" and not reg["has_sub"]:
+        if not reg["has_sub"]:
             await show_regions(cb, state)
         else:
             await show_locations(cb, state)
